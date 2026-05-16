@@ -24,16 +24,27 @@ float offsetCuello = 0, offsetEspalda = 0;
 unsigned long tiempoPrevio = 0;
 const float alpha = 0.98;
 
-// --- MOTOR --- Variables globales para el control del motor de vibracion
-const int motorPin = 4; 
-unsigned long tiempoInicioMalaPostura = 0; 
-bool cronometroActivo = false;
+// --- MOTORES --- pines de los motores de vibracion
+const int motorCuelloPin = 4; 
+const int motorEspaldaPin = 16; 
+
+// tiempos para la vibracion
+const int TIEMPO_ENCENDIDO = 300; // vibra por 300 ms 
+const int TIEMPO_APAGADO = 800;   // descansa 800 ms
 const unsigned long TIEMPO_TOLERANCIA = 10000; // 10000 ms = 10 segundos
-unsigned long tiempoUltimoPulso = 0;           
-bool estadoMotor = false;                      
-const int TIEMPO_ENCENDIDO = 150; // Vibra solo 150 milisegundos (un toque rápido)
-const int TIEMPO_APAGADO = 1000;  // Descansa 1 segundo completo para recargar la "cubeta"
-const float ANGULO_MAXIMO = 15.0;              // Los grados limite antes de considerar mala postura
+const float ANGULO_MAXIMO = 15.0;              // los grados limite antes de considerar mala postura
+
+// variables para controlar los 10 segundos de tolerancia (independientes)
+unsigned long tiempoInicioMalaPosturaCuello = 0; 
+bool cronometroActivoCuello = false;
+bool alertaCuello = false; // Se vuelve true cuando pasan los 10s
+
+unsigned long tiempoInicioMalaPosturaEspalda = 0; 
+bool cronometroActivoEspalda = false;
+bool alertaEspalda = false; // Se vuelve true cuando pasan los 10s
+
+// variable para el GESTOR CENTRAL de motores (evita que enciendan al mismo tiempo)
+unsigned long tiempoUltimoCicloMotor = 0;
 
 //clase para reconocer si la chamarra esta conectada 
 class MyServerCallbacks: public BLEServerCallbacks {
@@ -63,32 +74,29 @@ float obtenerAnguloFiltrado(int direccion, float &anguloActual, float dt) {
   Wire.endTransmission(false);
   Wire.requestFrom(direccion, 14, true);
 
-  // Red de seguridad para evitar saltos locos por desconexión 
   if (Wire.available() == 14) {
     int16_t ax = Wire.read()<<8|Wire.read();
     int16_t ay = Wire.read()<<8|Wire.read();
     int16_t az = Wire.read()<<8|Wire.read();
-    Wire.read()<<8|Wire.read(); // Ignorar temperatura
+    Wire.read()<<8|Wire.read(); // ignorar temperatura
     int16_t gx = Wire.read()<<8|Wire.read();
 
-    // ejes (az, ay) ajustados para sensores en posición vertical 
     float accAngulo = atan2(az, ay) * 180.0 / PI;
     float gyroRate = gx / 131.0; 
-    
-    //gyroscopio(drift) y accel(rudio), por eso 98 gyroscopio,2 accel
     anguloActual = alpha * (anguloActual + gyroRate * dt) + (1.0 - alpha) * accAngulo;
   }
   
   return anguloActual;
 }
 
-//funcion para iniciar el protocolo I2C, los protocolos ble y el advertising para que sea visible en el cel
 void setup() {
   Serial.begin(115200);
 
-  // --- MOTOR --- Configurar el pin del motor para que inicie apagado
-  pinMode(motorPin, OUTPUT);
-  digitalWrite(motorPin, LOW); 
+  // configurar los pines de los motores
+  pinMode(motorCuelloPin, OUTPUT);
+  digitalWrite(motorCuelloPin, LOW); 
+  pinMode(motorEspaldaPin, OUTPUT);
+  digitalWrite(motorEspaldaPin, LOW); 
   
   preferences.begin("postura", false);
   offsetCuello = preferences.getFloat("offCuello", 0.0);
@@ -111,12 +119,14 @@ void setup() {
   
   tiempoPrevio = millis();
   
-  for(int i = 0; i < 2; i++) {
-    digitalWrite(motorPin, HIGH);
-    delay(150);
-    digitalWrite(motorPin, LOW);
-    delay(150);
-  }
+  // Zumbido inicial secuencial (Turnamos los motores para no forzar el encendido)
+  digitalWrite(motorCuelloPin, HIGH);
+  delay(200);
+  digitalWrite(motorCuelloPin, LOW);
+  delay(100);
+  digitalWrite(motorEspaldaPin, HIGH);
+  delay(200);
+  digitalWrite(motorEspaldaPin, LOW);
 }
 
 void loop() {
@@ -125,21 +135,17 @@ void loop() {
   float dt = (tiempoActual - tiempoPrevio) / 1000.0;
   tiempoPrevio = tiempoActual;
   
-  // evita saltos de tiempo locos al iniciar
   if (dt > 0.1) dt = 0.02; 
 
-  // dt ya calculado a ambos sensores
   float cuello = obtenerAnguloFiltrado(0x68, anguloCuello, dt);
   float espalda = obtenerAnguloFiltrado(0x69, anguloEspalda, dt);
 
-  // calibracion simple y eficiente 
+  // calibracion 
   if (peticionCalibrar) {
     offsetCuello = cuello;
     offsetEspalda = espalda;
-    
     preferences.putFloat("offCuello", offsetCuello);
     preferences.putFloat("offEspalda", offsetEspalda);
-    
     peticionCalibrar = false;
   }
 
@@ -147,45 +153,97 @@ void loop() {
   float cuelloFinal = cuello - offsetCuello;
   float espaldaFinal = espalda - offsetEspalda;
 
-  // motor, ógica de evaluacion de postura (Intermitente Asimétrica)
-  if (abs(espaldaFinal) > ANGULO_MAXIMO || abs(cuelloFinal) > ANGULO_MAXIMO) {
-    if (!cronometroActivo) {
-      tiempoInicioMalaPostura = millis(); 
-      cronometroActivo = true;
-      tiempoUltimoPulso = millis(); // Inicializamos para el primer pulso
-    } 
-    else {
-      // Si ya pasaron los 10 segundos de tolerancia
-      if (millis() - tiempoInicioMalaPostura >= TIEMPO_TOLERANCIA) {
-        
-        if (estadoMotor) {
-          // Si el motor está prendido, checamos si ya pasaron los 150ms
-          if (millis() - tiempoUltimoPulso >= TIEMPO_ENCENDIDO) {
-            estadoMotor = false;
-            digitalWrite(motorPin, LOW);
-            tiempoUltimoPulso = millis(); 
-          }
-        } else {
-          // Si el motor está apagado, esperamos 1 segundo antes de dar otro toque
-          if (millis() - tiempoUltimoPulso >= TIEMPO_APAGADO) {
-            estadoMotor = true;
-            digitalWrite(motorPin, HIGH);
-            tiempoUltimoPulso = millis(); 
-          }
-        }
-
-      }
+  // evalua cuello (Cronometro de 10 segundos)
+  if (abs(cuelloFinal) > ANGULO_MAXIMO) {
+    if (!cronometroActivoCuello) {
+      tiempoInicioMalaPosturaCuello = millis(); 
+      cronometroActivoCuello = true;
+    } else if (millis() - tiempoInicioMalaPosturaCuello >= TIEMPO_TOLERANCIA) {
+      alertaCuello = true; // Ya pasaron los 10s, necesita vibrar
     }
   } else {
-    // Si la postura es buena, apagamos todo inmediatamente
-    digitalWrite(motorPin, LOW); 
-    cronometroActivo = false;    
-    estadoMotor = false;         
+    cronometroActivoCuello = false;    
+    alertaCuello = false;         
+  }
+
+  // espalda (Cronometro de 10 segundos)
+  if (abs(espaldaFinal) > ANGULO_MAXIMO) {
+    if (!cronometroActivoEspalda) {
+      tiempoInicioMalaPosturaEspalda = millis(); 
+      cronometroActivoEspalda = true;
+    } else if (millis() - tiempoInicioMalaPosturaEspalda >= TIEMPO_TOLERANCIA) {
+      alertaEspalda = true; // Ya pasaron los 10s, necesita vibrar
+    }
+  } else {
+    cronometroActivoEspalda = false;    
+    alertaEspalda = false;         
+  }
+
+  // gestor motores para que no se solapen
+  unsigned long tiempoTranscurridoVibracion = millis() - tiempoUltimoCicloMotor;
+
+  if (alertaCuello && alertaEspalda) {
+    // Si ambos estan mal:
+    // 0 - 300ms: Vibra Cuello
+    // 300 - 600ms: Silencio (pausa)
+    // 600 - 900ms: Vibra Espalda
+    // 900 - 1200ms: Silencio (pausa y reinicio)
+    
+    if (tiempoTranscurridoVibracion < TIEMPO_ENCENDIDO) {
+      digitalWrite(motorCuelloPin, HIGH);
+      digitalWrite(motorEspaldaPin, LOW);
+    } 
+    else if (tiempoTranscurridoVibracion < TIEMPO_ENCENDIDO + 300) {
+      digitalWrite(motorCuelloPin, LOW);
+      digitalWrite(motorEspaldaPin, LOW);
+    } 
+    else if (tiempoTranscurridoVibracion < (TIEMPO_ENCENDIDO * 2) + 300) {
+      digitalWrite(motorCuelloPin, LOW);
+      digitalWrite(motorEspaldaPin, HIGH);
+    } 
+    else if (tiempoTranscurridoVibracion < (TIEMPO_ENCENDIDO * 2) + 600) {
+      digitalWrite(motorCuelloPin, LOW);
+      digitalWrite(motorEspaldaPin, LOW);
+    } 
+    else {
+      tiempoUltimoCicloMotor = millis(); // Termina la rotacion, vuelve a empezar
+    }
+
+  } else if (alertaCuello) {
+    // Si solo el cuello esta mal:
+    if (tiempoTranscurridoVibracion < TIEMPO_ENCENDIDO) {
+      digitalWrite(motorCuelloPin, HIGH);
+      digitalWrite(motorEspaldaPin, LOW);
+    } else if (tiempoTranscurridoVibracion < TIEMPO_ENCENDIDO + TIEMPO_APAGADO) {
+      digitalWrite(motorCuelloPin, LOW);
+      digitalWrite(motorEspaldaPin, LOW);
+    } else {
+      tiempoUltimoCicloMotor = millis();
+    }
+
+  } else if (alertaEspalda) {
+    // Si la espalda esta mal:
+    if (tiempoTranscurridoVibracion < TIEMPO_ENCENDIDO) {
+      digitalWrite(motorCuelloPin, LOW);
+      digitalWrite(motorEspaldaPin, HIGH);
+    } else if (tiempoTranscurridoVibracion < TIEMPO_ENCENDIDO + TIEMPO_APAGADO) {
+      digitalWrite(motorCuelloPin, LOW);
+      digitalWrite(motorEspaldaPin, LOW);
+    } else {
+      tiempoUltimoCicloMotor = millis();
+    }
+
+  } else {
+    // no hay corvatura
+    digitalWrite(motorCuelloPin, LOW);
+    digitalWrite(motorEspaldaPin, LOW);
+    tiempoUltimoCicloMotor = millis(); // Mantener el cronometro listo en 0
   }
 
   //envio de datos al cel
   if (deviceConnected) {
     String msg = "CUELLO: " + String(cuelloFinal, 1) + "°\nESPALDA: " + String(espaldaFinal, 1) + "°";
+    Serial.println(msg);
     pCharacteristic->setValue(msg.c_str());
     pCharacteristic->notify();
   }
