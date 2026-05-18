@@ -256,6 +256,10 @@
 				DEVELOPMENT_TEAM = 26WG3X4YF8;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Postura-App-Final-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = BackRight;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Esta app necesita acceder al Bluetooth para conectarse a la sudadera y recibir tus datos de postura.";
+				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "Esta app necesita acceder al Bluetooth para conectarse a la sudadera y recibir tus datos de postura.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -288,6 +292,10 @@
 				DEVELOPMENT_TEAM = 26WG3X4YF8;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Postura-App-Final-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = BackRight;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Esta app necesita acceder al Bluetooth para conectarse a la sudadera y recibir tus datos de postura.";
+				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "Esta app necesita acceder al Bluetooth para conectarse a la sudadera y recibir tus datos de postura.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
