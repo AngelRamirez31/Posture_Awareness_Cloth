@@ -39,9 +39,10 @@ El sistema evalúa el ángulo del cuello y la espalda, si detecta una mala postu
    - `BLEDevice.h` (y dependencias BLE)
    - `Preferences.h`
 4. Conecta tu ESP32, selecciona la placa adecuada y el puerto COM.
-5. Sube el código.
-6. Enciende el sistema. Se escuchara una secuencia de vibración que confirma el inicio correcto.
-7. Conecta tu aplicación móvil mediante Bluetooth al dispositivo llamado **"SudaderaBLE"**.
+5. Sube el código(Codigo_ESP32_Posture.ino).
+6. Para manipular la app de IOS, descarga el repositorio y corre el proyecto en la carpeta "Postura_Final_App"
+7. Enciende el sistema. Se escuchara una secuencia de vibración que confirma el inicio correcto.
+8. Conecta tu aplicación móvil mediante Bluetooth 
 
 ## Comandos BLE Soportados
 
